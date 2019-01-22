@@ -3,12 +3,15 @@ package pcsconfig
 
 import (
 	"github.com/iikira/BaiduPCS-Go/baidupcs"
+	"github.com/iikira/BaiduPCS-Go/baidupcs/dlinkclient"
 	"github.com/iikira/BaiduPCS-Go/pcsutil"
 	"github.com/iikira/BaiduPCS-Go/pcsverbose"
+	"github.com/iikira/BaiduPCS-Go/requester"
 	"github.com/json-iterator/go"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -30,21 +33,25 @@ var (
 
 // PCSConfig 配置详情
 type PCSConfig struct {
-	baiduActiveUID  uint64
-	baiduUserList   BaiduUserList
-	appID           int    // appid
-	cacheSize       int    // 下载缓存
-	maxParallel     int    // 最大下载并发量
-	maxDownloadLoad int    // 同时进行下载文件的最大数量
-	userAgent       string // 浏览器标识
-	saveDir         string // 下载储存路径
-	enableHTTPS     bool   // 启用https
+	baiduActiveUID    uint64
+	baiduUserList     BaiduUserList
+	appID             int    // appid
+	cacheSize         int    // 下载缓存
+	maxParallel       int    // 最大下载并发量
+	maxUploadParallel int    // 最大上传并发量
+	maxDownloadLoad   int    // 同时进行下载文件的最大数量
+	userAgent         string // 浏览器标识
+	saveDir           string // 下载储存路径
+	enableHTTPS       bool   // 启用https
+	proxy             string // 代理
+	localAddrs        string // 本地网卡地址
 
 	configFilePath string
 	configFile     *os.File
 	fileMu         sync.Mutex
 	activeUser     *Baidu
 	pcs            *baidupcs.BaiduPCS
+	dc             *dlinkclient.DlinkClient
 }
 
 // NewConfig 返回 PCSConfig 指针对象
@@ -138,6 +145,11 @@ func (c *PCSConfig) init() error {
 	}
 	c.pcs = c.activeUser.BaiduPCS()
 
+	// 设置全局代理
+	requester.SetGlobalProxy(c.proxy)
+	// 设置本地网卡地址
+	requester.SetLocalTCPAddrList(strings.Split(c.localAddrs, ",")...)
+
 	return nil
 }
 
@@ -199,11 +211,12 @@ func (c *PCSConfig) loadConfigFromFile() (err error) {
 }
 
 func (c *PCSConfig) initDefaultConfig() {
-	c.appID = 260149
+	c.appID = 266719
 	c.cacheSize = 30000
 	c.maxParallel = 100
+	c.maxUploadParallel = 10
 	c.maxDownloadLoad = 1
-	c.userAgent = "netdisk;1.0"
+	c.userAgent = "netdisk;8.3.1;android-android"
 
 	// 设置默认的下载路径
 	switch runtime.GOOS {
@@ -275,6 +288,9 @@ func (c *PCSConfig) fix() {
 	}
 	if c.maxParallel < 1 {
 		c.maxParallel = 1
+	}
+	if c.maxUploadParallel < 1 {
+		c.maxUploadParallel = 1
 	}
 	if c.maxDownloadLoad < 1 {
 		c.maxDownloadLoad = 1

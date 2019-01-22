@@ -3,7 +3,9 @@ package converter
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
+	"unicode"
 	"unsafe"
 )
 
@@ -56,7 +58,12 @@ func ToString(p []byte) string {
 
 // ToBytes unsafe 转换, 将 string 转换为 []byte
 func ToBytes(str string) []byte {
-	return *(*[]byte)(unsafe.Pointer(&str))
+	strHeader := (*reflect.StringHeader)(unsafe.Pointer(&str))
+	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
+		Data: strHeader.Data,
+		Len:  strHeader.Len,
+		Cap:  strHeader.Len,
+	}))
 }
 
 // IntToBool int 类型转换为 bool
@@ -67,7 +74,7 @@ func IntToBool(i int) bool {
 // SliceInt64ToString []int64 转换为 []string
 func SliceInt64ToString(si []int64) (ss []string) {
 	ss = make([]string, 0, len(si))
-	for k := range ss {
+	for k := range si {
 		ss = append(ss, strconv.FormatInt(si[k], 10))
 	}
 	return ss
@@ -121,10 +128,16 @@ func MustInt64(s string) (i int64) {
 
 // ShortDisplay 缩略显示字符串s, 显示长度为num, 缩略的内容用"..."填充
 func ShortDisplay(s string, num int) string {
-	for k := range s {
+	rs := []rune(s)
+	for k := 0; k < len(rs); k++ {
+		if unicode.Is(unicode.C, rs[k]) { // 去除无效字符
+			rs = append(rs[:k], rs[k+1:]...)
+			k--
+			continue
+		}
 		if k >= num {
-			return string(s[:k]) + "..."
+			return string(rs[:k]) + "..."
 		}
 	}
-	return s
+	return string(rs)
 }

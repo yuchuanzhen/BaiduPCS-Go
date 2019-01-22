@@ -4,6 +4,17 @@ import (
 	"fmt"
 )
 
+type (
+	// PanErrorInfo 网盘网页的api错误
+	PanErrorInfo struct {
+		Operation string
+		ErrType   ErrType
+		Err       error
+		ErrNo     int `json:"errno"`
+		// ErrMsg    string `json:"err_msg"`
+	}
+)
+
 // NewPanErrorInfo 提供operation操作名称, 返回 *PanErrorInfo
 func NewPanErrorInfo(operation string) *PanErrorInfo {
 	return &PanErrorInfo{
@@ -46,7 +57,7 @@ func (pane *PanErrorInfo) GetRemoteErrCode() int {
 
 // GetRemoteErrMsg 获取远端服务器错误消息
 func (pane *PanErrorInfo) GetRemoteErrMsg() string {
-	return findPanErr(pane.ErrNo)
+	return FindPanErr(pane.ErrNo)
 }
 
 // GetError 获取原始错误
@@ -74,7 +85,7 @@ func (pane *PanErrorInfo) Error() string {
 			return fmt.Sprintf("%s: %s", pane.Operation, StrSuccess)
 		}
 
-		errmsg := findPanErr(pane.ErrNo)
+		errmsg := FindPanErr(pane.ErrNo)
 		return fmt.Sprintf("%s: 遇到错误, %s, 代码: %d, 消息: %s", pane.Operation, StrRemoteError, pane.ErrNo, errmsg)
 	case ErrTypeOthers:
 		if pane.Err == nil {
@@ -87,7 +98,8 @@ func (pane *PanErrorInfo) Error() string {
 	}
 }
 
-func findPanErr(errno int) (errmsg string) {
+// FindPanErr 根据 ErrNo, 解析网盘错误信息
+func FindPanErr(errno int) (errmsg string) {
 	switch errno {
 	case 0:
 		return StrSuccess
@@ -125,6 +137,8 @@ func findPanErr(errno int) (errmsg string) {
 		return "文件分享超过限制"
 	case -19:
 		return "需要输入验证码"
+	case -21:
+		return "分享已取消或分享信息无效"
 	case -30:
 		return "文件已存在"
 	case -31:
@@ -141,6 +155,8 @@ func findPanErr(errno int) (errmsg string) {
 		return "未登录或帐号无效"
 	case 4:
 		return "存储好像出问题了，请稍候再试"
+	case 105:
+		return "啊哦，链接错误没找到文件，请打开正确的分享链接"
 	case 108:
 		return "文件名有敏感词，优化一下吧"
 	case 110:
@@ -153,6 +169,8 @@ func findPanErr(errno int) (errmsg string) {
 		return "当前任务不存在，保存失败"
 	case 115:
 		return "该文件禁止分享"
+	case 132:
+		return "您的帐号可能存在安全风险，为了确保为您本人操作，请先进行安全验证。"
 	default:
 		return "未知错误"
 	}

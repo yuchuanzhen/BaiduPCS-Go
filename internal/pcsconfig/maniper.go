@@ -1,6 +1,7 @@
 package pcsconfig
 
 import (
+	"github.com/iikira/BaiduPCS-Go/requester"
 	"strings"
 )
 
@@ -32,13 +33,13 @@ func (c *PCSConfig) manipUser(op string, baiduBase *BaiduBase) (*Baidu, error) {
 		switch {
 		case baiduBase.UID != 0 && baiduBase.Name != "":
 			// 不区分大小写
-			if user.UID == baiduBase.UID && strings.Compare(strings.ToUpper(user.Name), strings.ToUpper(baiduBase.Name)) == 0 {
+			if user.UID == baiduBase.UID && strings.EqualFold(user.Name, baiduBase.Name) {
 				goto handle
 			}
 			continue
 		case baiduBase.UID == 0 && baiduBase.Name != "":
 			// 不区分大小写
-			if strings.Compare(strings.ToUpper(user.Name), strings.ToUpper(baiduBase.Name)) == 0 {
+			if strings.EqualFold(user.Name, baiduBase.Name) {
 				goto handle
 			}
 			continue
@@ -149,6 +150,11 @@ func (c *PCSConfig) SetMaxParallel(maxParallel int) {
 	c.maxParallel = maxParallel
 }
 
+// SetMaxUploadParallel 设置上传最大并发量
+func (c *PCSConfig) SetMaxUploadParallel(maxUploadParallel int) {
+	c.maxUploadParallel = maxUploadParallel
+}
+
 // SetMaxDownloadLoad 设置max_download_load, 同时进行下载文件的最大数量
 func (c *PCSConfig) SetMaxDownloadLoad(maxDownloadLoad int) {
 	c.maxDownloadLoad = maxDownloadLoad
@@ -159,6 +165,9 @@ func (c *PCSConfig) SetUserAgent(userAgent string) {
 	c.userAgent = userAgent
 	if c.pcs != nil {
 		c.pcs.SetUserAgent(userAgent)
+	}
+	if c.dc != nil {
+		c.dc.SetClient(c.HTTPClient())
 	}
 }
 
@@ -173,4 +182,19 @@ func (c *PCSConfig) SetEnableHTTPS(https bool) {
 	if c.pcs != nil {
 		c.pcs.SetHTTPS(https)
 	}
+	if c.dc != nil {
+		c.dc.SetClient(c.HTTPClient())
+	}
+}
+
+// SetProxy 设置代理
+func (c *PCSConfig) SetProxy(proxy string) {
+	c.proxy = proxy
+	requester.SetGlobalProxy(proxy)
+}
+
+// SetLocalAddrs 设置localAddrs
+func (c *PCSConfig) SetLocalAddrs(localAddrs string) {
+	c.localAddrs = localAddrs
+	requester.SetLocalTCPAddrList(strings.Split(localAddrs, ",")...)
 }

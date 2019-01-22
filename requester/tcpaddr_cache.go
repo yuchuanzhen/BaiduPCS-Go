@@ -26,7 +26,7 @@ type tcpAddrCache struct {
 
 // tcpAddrItem tcpAddrCache中缓存的带有超时的TcpAddr
 type tcpAddrItem struct {
-	ta *net.TCPAddr
+	ta     *net.TCPAddr
 	expire <-chan time.Time // 缓存项是否过期
 }
 
@@ -36,24 +36,14 @@ func (tac *tcpAddrCache) Set(address string, ta *net.TCPAddr) {
 	tac.ta.Store(address, item)
 }
 
-// Existed 检测存在
-func (tac *tcpAddrCache) Existed(address string) bool {
-	v, existed := tac.ta.Load(address)
-	if existed && v == nil {
-		return false
-	}
-
-	return existed
-}
-
 // Get 获取
 func (tac *tcpAddrCache) Get(address string) *net.TCPAddr {
-	if tac.Existed(address) {
-		value, _ := tac.ta.Load(address)
-		return value.(*tcpAddrItem).ta
+	value, ok := tac.ta.Load(address)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return value.(*tcpAddrItem).ta
 }
 
 // SetLifeTime 设置生命周期
@@ -77,7 +67,16 @@ func (tac *tcpAddrCache) GC() {
 	go func() {
 		for {
 			time.Sleep(tac.lifeTime) // 这样可以动态修改 lifetime
-			tac.DelAll()
+			tac.ta.Range(func(address, v interface{}) bool {
+				item := v.(*tcpAddrItem)
+				select {
+				case <-item.expire: // 如果超时再删去缓存项，避免在接近lifeTime前添加的缓存项被删除
+					tac.ta.Delete(address)
+					return true
+				default:
+					return true
+				}
+			})
 		}
 	}()
 }
@@ -89,15 +88,9 @@ func (tac *tcpAddrCache) Del(address string) {
 
 // DelAll 清空缓存
 func (tac *tcpAddrCache) DelAll() {
-	tac.ta.Range(func(address, v interface{}) bool {
-		item := v.(*tcpAddrItem)
-		select {
-		case <- item.expire: // 如果超时再删去缓存项，避免在接近lifeTime前添加的缓存项被删除
-			tac.ta.Delete(address)
-			return true
-		default:
-			return true
-		}
+	tac.ta.Range(func(address, _ interface{}) bool {
+		tac.ta.Delete(address)
+		return true
 	})
 }
 

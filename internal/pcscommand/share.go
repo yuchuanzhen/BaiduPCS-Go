@@ -1,22 +1,25 @@
 package pcscommand
 
 import (
+	"errors"
 	"fmt"
 	"github.com/iikira/BaiduPCS-Go/baidupcs"
 	"github.com/iikira/BaiduPCS-Go/internal/pcsconfig"
 	"github.com/iikira/BaiduPCS-Go/pcstable"
-	"github.com/iikira/BaiduPCS-Go/requester"
-	"github.com/iikira/baidu-tools/pan"
-	"net/url"
 	"os"
 	"path"
 	"strconv"
 	"strings"
 )
 
+var (
+	// ErrShareInfoNotFound 未在已分享列表中找到分享信息
+	ErrShareInfoNotFound = errors.New("未在已分享列表中找到分享信息")
+)
+
 // RunShareSet 执行分享
 func RunShareSet(paths []string, option *baidupcs.ShareOption) {
-	pcspaths, err := getAllAbsPaths(paths...)
+	pcspaths, err := matchPathByShellPattern(paths...)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -48,8 +51,11 @@ func RunShareCancel(shareIDs []int64) {
 }
 
 // RunShareList 执行列出分享列表
-func RunShareList() {
-	records, err := GetBaiduPCS().ShareList(1)
+func RunShareList(page int) {
+	if page < 1 {
+		page = 1
+	}
+	records, err := GetBaiduPCS().ShareList(page)
 	if err != nil {
 		fmt.Printf("%s失败: %s\n", baidupcs.OperationShareList, err)
 		return
@@ -62,12 +68,13 @@ func RunShareList() {
 			continue
 		}
 
-		tb.Append([]string{strconv.Itoa(k), strconv.FormatInt(record.ShareID, 10), record.Shortlink, record.Passwd, record.TypicalPath[:strings.LastIndex(record.TypicalPath, "/")+1], record.TypicalPath})
+		tb.Append([]string{strconv.Itoa(k), strconv.FormatInt(record.ShareID, 10), record.Shortlink, record.Passwd, path.Clean(path.Dir(record.TypicalPath)), record.TypicalPath})
 	}
 	tb.Render()
 }
 
-func getShareDLink(pcspath string) (dlink string) {
+// getShareDLink pcspath 为文件的路径, 不是目录
+func getShareDLink(pcspath string) (dlink string, err error) {
 	var (
 		pcs = GetBaiduPCS()
 	)
@@ -75,8 +82,7 @@ func getShareDLink(pcspath string) (dlink string) {
 	for page := 1; ; page++ {
 		records, pcsError := pcs.ShareList(page)
 		if pcsError != nil {
-			pcsCommandVerbose.Warn(pcsError.Error())
-			break
+			return "", pcsError
 		}
 
 		// 完成
@@ -89,84 +95,115 @@ func getShareDLink(pcspath string) (dlink string) {
 				continue
 			}
 
-			rootSharePath := path.Dir(record.TypicalPath)
+			if record.Status != 0 { // 分享状态异常
+				continue
+			}
+
+			if record.TypicalPath == baidupcs.PathSeparator { //TypicalPath为根目录
+				continue
+			}
+
+			rootSharePath, _ := path.Split(record.TypicalPath)
+			if rootSharePath == "" { // 分享状态异常
+				continue
+			}
+
+			// 粗略搜索
 			if len(record.FsIds) == 1 {
-				if strings.HasPrefix(pcspath, record.TypicalPath) {
-					dlink = getLink(record.ShareID, record.Shortlink, record.Passwd, rootSharePath, strings.TrimPrefix(pcspath, rootSharePath))
-					return
+				switch record.TypicalCategory {
+				case -1: // 文件夹
+					if strings.HasPrefix(pcspath, record.TypicalPath+baidupcs.PathSeparator) {
+						dlink, err = getLink(record.Shortlink, record.Passwd, pcspath, true)
+						return
+					}
+				default: // 文件
+					if pcspath == record.TypicalPath {
+						dlink, err = getLink(record.Shortlink, record.Passwd, pcspath, false)
+						return
+					}
 				}
+
 				continue
 			}
 
 			// 尝试获取
 			if strings.HasPrefix(pcspath, rootSharePath) {
-				dlink = getLink(record.ShareID, record.Shortlink, record.Passwd, rootSharePath, strings.TrimPrefix(pcspath, rootSharePath))
-				if dlink != "" {
-					return
+				dlink, err = getLink(record.Shortlink, record.Passwd, pcspath, false)
+				if err != nil {
+					continue
 				}
-				continue
+				return
 			}
 		}
 	}
 
-	pcsCommandVerbose.Infof("%s: 未在已分享列表中找到分享信息\n", pcspath)
-	s, pcsError := pcs.ShareSet([]string{pcspath}, nil)
-	if pcsError != nil {
-		pcsCommandVerbose.Warn(pcsError.Error())
-		return ""
+	if err != nil {
+		return
 	}
-
-	// 取消分享
-	defer pcs.ShareCancel([]int64{s.ShareID})
-
-	dlink = getLink(s.ShareID, s.Link, "", path.Dir(pcspath), path.Base(pcspath))
-	return
+	return "", ErrShareInfoNotFound
 }
 
-func getLink(shareID int64, shareLink, passwd, rootSharePath, filePath string) (dlink string) {
-	sInfo := pan.NewSharedInfo(shareLink)
-	sInfo.Client = requester.NewHTTPClient()
-	sInfo.Client.SetHTTPSecure(pcsconfig.Config.EnableHTTPS())
+func getLink(shareLink, passwd, filePath string, skipRoot bool) (dlink string, err error) {
+	dc := pcsconfig.Config.DlinkClient()
+	short, err := dc.CacheShareReg(shareLink, passwd)
+	if err != nil {
+		return
+	}
 
-	if passwd != "" {
-		err := sInfo.Auth(passwd)
+	var dir string
+	if skipRoot {
+		dir = path.Dir(filePath)
+	} else {
+		rfl, err := dc.CacheShareList(short, baidupcs.PathSeparator, 1)
 		if err != nil {
-			pcsCommandVerbose.Warn(err.Error())
-			return ""
+			return "", err
+		}
+
+		for _, rf := range rfl {
+			if rf.Isdir == 1 {
+				if strings.HasPrefix(filePath, rf.Path+baidupcs.PathSeparator) {
+					dir = path.Dir(filePath)
+					break
+				}
+				continue
+			}
+
+			if rf.Path == filePath {
+				dlink, err = dc.LinkRedirect(rf.Link)
+				if err != nil {
+					return "", ErrDlinkNotFound
+				}
+				return dlink, err
+			}
 		}
 	}
 
-	uk, pcsError := GetBaiduPCS().UK()
-	if pcsError != nil {
-		pcsCommandVerbose.Warn(pcsError.Error())
-		err := sInfo.InitInfo()
+	if dir == "" {
+		return "", ErrDlinkNotFound
+	}
+
+	for page := 1; ; page++ {
+		list, err := dc.CacheShareList(short, dir, page)
 		if err != nil {
-			pcsCommandVerbose.Warn(err.Error())
-			return ""
+			return "", err
 		}
-	} else {
-		sInfo.UK = uk
-		sInfo.ShareID = shareID
-		sInfo.RootSharePath = rootSharePath
+		if len(list) == 0 {
+			break
+		}
+
+		for _, f := range list {
+			if f.Path == filePath {
+				dlink, err = dc.CacheLinkRedirect(f.Link)
+				if err != nil {
+					return "", ErrDlinkNotFound
+				}
+				return dlink, err
+			}
+		}
+		if len(list) < 100 {
+			break
+		}
 	}
 
-	fd, err := sInfo.Meta(filePath)
-	if err != nil {
-		pcsCommandVerbose.Warn(err.Error())
-		return ""
-	}
-
-	u, err := url.Parse(fd.Dlink)
-	if err != nil {
-		pcsCommandVerbose.Warn(err.Error())
-		return ""
-	}
-
-	if pcsconfig.Config.EnableHTTPS() {
-		u.Scheme = "https"
-	} else {
-		u.Scheme = "http"
-	}
-
-	return u.String()
+	return "", ErrDlinkNotFound
 }

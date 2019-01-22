@@ -10,24 +10,7 @@ type (
 	// ErrType 错误类型
 	ErrType int
 
-	// PCSErrInfo 错误信息
-	PCSErrInfo struct {
-		Operation string // 正在进行的操作
-		ErrType   ErrType
-		Err       error
-		ErrCode   int    `json:"error_code"` // 错误代码
-		ErrMsg    string `json:"error_msg"`  // 错误消息
-	}
-
-	// PanErrorInfo 网盘网页的api错误
-	PanErrorInfo struct {
-		Operation string
-		ErrType   ErrType
-		Err       error
-		ErrNo     int `json:"errno"`
-		// ErrMsg    string `json:"err_msg"`
-	}
-
+	// Error 错误信息接口
 	Error interface {
 		error
 		SetJSONError(err error)
@@ -72,26 +55,25 @@ const (
 // DecodePCSJSONError 解析PCS JSON的错误
 func DecodePCSJSONError(opreation string, data io.Reader) Error {
 	errInfo := NewPCSErrorInfo(opreation)
-	return decodeJSONError(data, errInfo)
+	return HandleJSONParse(opreation, data, errInfo)
 }
 
 // DecodePanJSONError 解析Pan JSON的错误
 func DecodePanJSONError(opreation string, data io.Reader) Error {
 	errInfo := NewPanErrorInfo(opreation)
-	return decodeJSONError(data, errInfo)
+	return HandleJSONParse(opreation, data, errInfo)
 }
 
-func decodeJSONError(data io.Reader, errInfo Error) Error {
+// HandleJSONParse 处理解析json
+func HandleJSONParse(op string, data io.Reader, info interface{}) (pcsError Error) {
 	var (
-		d   = jsoniter.NewDecoder(data)
-		err error
+		d       = jsoniter.NewDecoder(data)
+		err     = d.Decode(info)
+		errInfo = info.(Error)
 	)
 
-	switch value := errInfo.(type) {
-	case *PCSErrInfo:
-		err = d.Decode(value)
-	case *PanErrorInfo:
-		err = d.Decode(value)
+	if errInfo == nil {
+		errInfo = NewPCSErrorInfo(op)
 	}
 
 	if err != nil {
@@ -99,6 +81,7 @@ func decodeJSONError(data io.Reader, errInfo Error) Error {
 		return errInfo
 	}
 
+	// 设置出错类型为远程错误
 	if errInfo.GetRemoteErrCode() != 0 {
 		errInfo.SetRemoteError()
 		return errInfo

@@ -3,13 +3,15 @@ package baidupcs
 import (
 	"errors"
 	"github.com/iikira/BaiduPCS-Go/baidupcs/pcserror"
+	"github.com/iikira/BaiduPCS-Go/pcsutil"
+	"github.com/iikira/BaiduPCS-Go/pcsutil/converter"
 	"path"
 	"strings"
 )
 
 // Isdir 检查路径在网盘中是否为目录
 func (pcs *BaiduPCS) Isdir(pcspath string) (isdir bool, pcsError pcserror.Error) {
-	if path.Clean(pcspath) == "/" {
+	if path.Clean(pcspath) == PathSeparator {
 		return true, nil
 	}
 
@@ -46,18 +48,26 @@ func mergeStringList(a ...string) string {
 	return `["` + s + `"]`
 }
 
+func mergeInt64List(si ...int64) string {
+	i := converter.SliceInt64ToString(si)
+	s := strings.Join(i, ",")
+	return "[" + s + "]"
+}
+
+func allRelatedDir(pcspaths []string) (dirs []string) {
+	for _, pcspath := range pcspaths {
+		pathDir := path.Dir(pcspath)
+		if !pcsutil.ContainsString(dirs, pathDir) {
+			dirs = append(dirs, pathDir)
+		}
+	}
+	return
+}
+
 // GetHTTPScheme 获取 http 协议, https 或 http
 func GetHTTPScheme(https bool) (scheme string) {
 	if https {
 		return "https"
 	}
 	return "http"
-}
-
-// FixSliceMD5 修复slicemd5为合法的md5
-func FixSliceMD5(slicemd5 string) string {
-	if len(slicemd5) != 32 {
-		return DefaultSliceMD5
-	}
-	return slicemd5
 }

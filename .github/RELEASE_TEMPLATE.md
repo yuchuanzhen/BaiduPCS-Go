@@ -1,10 +1,14 @@
 # 更新日志: 
 
-1. 修复若干问题;
-2. 支持2gb以上的文件上传了;
-3. 支持多个文件并行下载;
-4. 增加清空控制台命令;
-5. 支持搜索文件;
+1. 修复登录成功后, 无法正常使用的问题 ([#399](https://github.com/iikira/BaiduPCS-Go/issues/399));
+2. 修复文件夹下载无法调整重试次数;
+3. 使用 export 导出, 会输出导出错误的文件或目录了;
+4. 更换失效的默认app_id, 对于不是全新安装此程序的用户, 仍然需要手动更改默认的app_id, ([#387](https://github.com/iikira/BaiduPCS-Go/issues/387))
+
+```
+BaiduPCS-Go config set -appid 266719
+```
+
 
 个人项目bug在所难免! 欢迎提 issue 和 pull request!!.
 
